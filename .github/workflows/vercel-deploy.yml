@@ -1,0 +1,82 @@
+---
+name: Deploy to Vercel
+
+'on':
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment information
+        run: >
+          vercel pull --yes --environment=production
+          --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build project artifacts
+        run: >
+          vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && \
+                ("${{ github.ref }}" == "refs/heads/main" || \
+                 "${{ github.ref }}" == "refs/heads/master") ]]; then
+            # Production deployment for main/master branch
+            DEPLOYMENT_URL=$(vercel deploy --prebuilt --prod \
+              --token=${{ secrets.VERCEL_TOKEN }})
+          else
+            # Preview deployment for pull requests and other branches
+            DEPLOYMENT_URL=$(vercel deploy --prebuilt \
+              --token=${{ secrets.VERCEL_TOKEN }})
+          fi
+          echo "deployment-url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $DEPLOYMENT_URL"
+
+      - name: Comment deployment URL on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 **Preview deployment ready!**
+
+            📱 **Live Preview:** ${{ steps.deploy.outputs.deployment-url }}
+
+            ✅ Build completed successfully.`
+            })
